@@ -936,23 +936,27 @@ model Lead {
 
 // Costaplanner structural design results.
 model StructuralDesign {
-  id            String   @id @default(uuid())
-  projectId     String
-  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy     String   @default("")
-  name          String   @default("")
-  archJson      Json
-  structJson    Json
-  resultJson    Json
-  summaryStatus String   @default("ok")
-  elementsCount Int      @default(0)
-  passingCount  Int      @default(0)
-  reviewCount   Int      @default(0)
-  errorCount    Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(uuid())
+  projectId       String?
+  project         Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  designProjectId String?
+  designProject   DesignProject? @relation(fields: [designProjectId], references: [id], onDelete: SetNull)
+  createdBy       String   @default("")
+  name            String   @default("")
+  revisionNumber  Int      @default(1)
+  archJson        Json
+  structJson      Json
+  resultJson      Json
+  summaryStatus   String   @default("ok")
+  elementsCount   Int      @default(0)
+  passingCount    Int      @default(0)
+  reviewCount     Int      @default(0)
+  errorCount      Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([projectId])
+  @@index([designProjectId])
   @@index([createdBy])
 }
 
@@ -1320,4 +1324,24 @@ model ComplianceRequirement {
 
   @@index([projectId, status])
   @@index([authority])
+}
+
+// Costaplanner-side container for structural design work. Lives in the shared
+// Neon DB alongside REVARA's Project/StructuralDesign tables. A DesignProject
+// can optionally link back to a REVARA Project via revaraProjectId (loose
+// coupling, no enforced FK so deletion in one app doesn't cascade-break the
+// other). The link surfaces in REVARA's /structural page as "Disenos
+// recientes" filtered by revaraProjectId == currentRevaraProjectId.
+model DesignProject {
+  id              String   @id @default(uuid())
+  name            String
+  createdBy       String
+  organizationId  String?
+  revaraProjectId String?
+  designs         StructuralDesign[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([createdBy])
+  @@index([revaraProjectId])
 }

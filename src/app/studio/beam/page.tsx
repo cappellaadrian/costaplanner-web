@@ -25,6 +25,7 @@ import {
 } from "./InputEditor";
 import { StepRenderer } from "./StepRenderer";
 import { VerificationPanel, type OfficialCheck } from "./VerificationPanel";
+import { SaveModal } from "./SaveModal";
 
 interface OfficialState {
   meta?: {
@@ -129,6 +130,8 @@ export default function BeamStudioPage() {
   const [streamError, setStreamError] = useState<string | null>(null);
   const [highlightVar, setHighlightVar] = useState<string | undefined>();
   const [changedStepIds, setChangedStepIds] = useState<Set<string>>(new Set());
+  const [showSave, setShowSave] = useState(false);
+  const [savedToast, setSavedToast] = useState<string | null>(null);
 
   // Live computation: re-run TS port on any input change
   const liveCompute = useMemo(
@@ -223,6 +226,64 @@ export default function BeamStudioPage() {
     }
   }, [input]);
 
+  const handleSave = useCallback(
+    async (args: { name: string; designProjectId: string | null; projectId: string | null }) => {
+      const { arch, struct } = buildPair(input);
+      // result must exist for save to make sense; if not, run a quick
+      // validate first so we have a canonical resultJson to persist.
+      let resultJson: Record<string, unknown>;
+      if (official.finalResult) {
+        // Use the canonical result if we already validated officially
+        resultJson = {
+          project: official.meta?.project ?? {},
+          materials: official.meta?.materials ?? {},
+          results: [{
+            element_id: "V-1",
+            checks: official.finalResult.checks,
+            refuerzo: official.finalResult.refuerzo,
+            memorando_md: official.finalResult.memorando_md,
+            requires_review: official.finalResult.requires_review,
+            warnings: official.finalResult.warnings,
+            errors: official.finalResult.errors,
+            steps: official.steps,
+          }],
+          summary: official.summary ?? {},
+        };
+      } else {
+        // No official run yet — fetch one inline so the saved record has a
+        // canonical structural design payload.
+        const r = await fetch("/api/structural/design-proxy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ arch, struct }),
+        });
+        if (!r.ok) {
+          throw new Error(`No se pudo computar oficialmente: HTTP ${r.status}`);
+        }
+        resultJson = await r.json();
+      }
+      const saveRes = await fetch("/api/designs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: args.name,
+          designProjectId: args.designProjectId,
+          projectId: args.projectId,
+          archJson: arch,
+          structJson: struct,
+          resultJson,
+        }),
+      });
+      const saved = await saveRes.json();
+      if (!saveRes.ok) {
+        throw new Error(saved.error ?? `HTTP ${saveRes.status}`);
+      }
+      setSavedToast(`Guardado: ${saved.name}`);
+      setTimeout(() => setSavedToast(null), 4000);
+    },
+    [input, official],
+  );
+
   // Click a variable pill in a step → highlight + scroll to the step that
   // defines that variable (its output_var matches the clicked name).
   const handleVarClick = useCallback(
@@ -272,6 +333,13 @@ export default function BeamStudioPage() {
             <Link href="/structural">
               <Button variant="ghost">← Volver</Button>
             </Link>
+            <Button
+              variant="ghost"
+              onClick={() => setShowSave(true)}
+              disabled={streaming}
+            >
+              Guardar
+            </Button>
             <Button
               onClick={handleValidateOfficially}
               disabled={streaming}
@@ -363,6 +431,19 @@ export default function BeamStudioPage() {
           </aside>
         </div>
       </div>
+
+      <SaveModal
+        open={showSave}
+        onClose={() => setShowSave(false)}
+        defaultName={`${input.project_name} - ${new Date().toISOString().slice(0, 10)}`}
+        onSave={handleSave}
+      />
+
+      {savedToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-900/90 border border-emerald-700 text-emerald-100 rounded-lg px-4 py-3 text-sm shadow-2xl">
+          {savedToast}
+        </div>
+      )}
     </div>
   );
 }
