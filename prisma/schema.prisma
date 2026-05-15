@@ -1,0 +1,1323 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  name          String
+  passwordHash  String
+  role          String   @default("editor")
+  company       String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Project {
+  id            String   @id @default(uuid())
+  name          String
+  number        String
+  buildingType  String   @default("")
+  grossArea     Float    @default(0)
+  estimatedCost Float    @default(0)
+  orgId         String?
+  createdBy     String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([orgId])
+  planFiles     PlanFile[]
+  bimModels     BimModel[]
+  schedules     Schedule[]
+  boqs          Boq[]
+  rfis             Rfi[]
+  punchListItems   PunchListItem[]
+  changeOrders     ChangeOrder[]
+  purchaseOrders   PurchaseOrder[]
+  submittals       Submittal[]
+  bidRequests      BidRequest[]
+  expenses         Expense[]
+  takeoffs         Takeoff[]
+  dailyLogs        DailyLog[]
+  equipment        Equipment[]
+  timeEntries      TimeEntry[]
+  lookaheadTasks   LookaheadTask[]
+  weeklyWorkPlans  WeeklyWorkPlan[]
+  pullPlanCards    PullPlanCard[]
+  invoices         Invoice[]
+  structuralDesigns StructuralDesign[]
+  safetyIncidents  SafetyIncident[]
+  toolboxTalks     ToolboxTalk[]
+  inspections      Inspection[]
+  nonConformances  NonConformance[]
+  complianceReqs   ComplianceRequirement[]
+  risks            Risk[]
+  correspondence   Correspondence[]
+  transmittals     Transmittal[]
+  costMatches      CostMatch[]
+}
+
+model PlanFile {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  filePath    String
+  fileType    String   @default("image")
+  sheetNumber String   @default("")
+  discipline  String   @default("Architectural")
+  revision    String   @default("0")
+  setName     String   @default("Current")
+  scale       Float    @default(100)
+  analysis    String   @default("")
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model Classification {
+  id          String   @id @default(uuid())
+  name        String
+  category    String   @default("area")
+  color       String   @default("rgba(59,130,246,0.25)")
+  costCode    String   @default("")
+  unitRate    Float    @default(0)
+  unit        String   @default("SF")
+  companyWide Boolean  @default(true)
+  projectId   String   @default("")
+  createdAt   DateTime @default(now())
+}
+
+model Assembly {
+  id          String   @id @default(uuid())
+  name        String
+  category    String   @default("wall")
+  unit        String   @default("SF")
+  description String   @default("")
+  components  String   @default("[]")
+  totalCost   Float    @default(0)
+  companyWide Boolean  @default(true)
+  projectId   String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SharedModel {
+  id          String   @id @default(uuid())
+  projectId   String
+  name        String
+  filePath    String
+  shareToken  String   @unique
+  viewCount   Int      @default(0)
+  createdBy   String   @default("")
+  isPublic    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+// ─── 4D Construction Simulation ─────────────────────────────
+
+model BimModel {
+  id          String       @id @default(uuid())
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  discipline  String       @default("Architectural")
+  filePath    String
+  fileSizeMb  Float        @default(0)
+  elementCount Int         @default(0)
+  uploadedAt  DateTime     @default(now())
+  elements    BimElement[]
+}
+
+model BimElement {
+  id          String       @id @default(uuid())
+  modelId     String
+  model       BimModel     @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  globalId    String
+  ifcClass    String       @default("")
+  name        String       @default("")
+  levelName   String       @default("")
+  material    String       @default("")
+  volume      Float        @default(0)
+  area        Float        @default(0)
+  properties  String       @default("{}")
+  taskLinks   TaskElementLink[]
+
+  @@unique([modelId, globalId])
+}
+
+model Schedule {
+  id           String     @id @default(uuid())
+  projectId    String
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name         String
+  sourceFormat String     @default("excel")
+  version      Int        @default(1)
+  importedAt   DateTime   @default(now())
+  tasks        Task[]
+}
+
+model Task {
+  id              String       @id @default(uuid())
+  scheduleId      String
+  schedule        Schedule     @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  externalId      String       @default("")
+  wbsCode         String       @default("")
+  name            String
+  taskType        String       @default("task")
+  startDate       DateTime
+  endDate         DateTime
+  durationDays    Float        @default(0)
+  percentComplete Float        @default(0)
+  parentTaskId    String?
+  sortOrder       Int          @default(0)
+  costBudget      Float        @default(0)
+  costActual      Float        @default(0)
+  elementLinks    TaskElementLink[]
+  predecessors    TaskDependency[] @relation("successor")
+  successors      TaskDependency[] @relation("predecessor")
+}
+
+model TaskDependency {
+  id             String   @id @default(uuid())
+  predecessorId  String
+  predecessor    Task     @relation("predecessor", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successorId    String
+  successor      Task     @relation("successor", fields: [successorId], references: [id], onDelete: Cascade)
+  depType        String   @default("FS")
+  lagDays        Float    @default(0)
+
+  @@unique([predecessorId, successorId])
+}
+
+model TaskElementLink {
+  id          String     @id @default(uuid())
+  taskId      String
+  task        Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  elementId   String
+  element     BimElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  action      String     @default("construct")
+  createdBy   String     @default("manual")
+
+  @@unique([taskId, elementId])
+}
+
+model DailyLog {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  date        DateTime
+  taskId      String?
+  description String   @default("")
+  progress    Float    @default(0)
+  weather     String   @default("")
+  crew        Int      @default(0)
+  notes       String   @default("")
+  photos      String   @default("[]")              // JSON array of {url, gpsLat?, gpsLng?, takenAt?}
+  gpsLat      Float?
+  gpsLng      Float?
+  orgId       String?
+  createdBy   String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId, date])
+}
+
+model Equipment {
+  id              String    @id @default(uuid())
+  projectId       String?
+  project         Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  name            String
+  type            String    @default("rental")                       // owned | rental | subcontracted
+  category        String    @default("general")                      // formwork | scaffold | crane | mixer | compactor | tool | vehicle | general
+  serialNumber    String    @default("")
+  rentalCompany   String    @default("")
+  rentalRateDaily Decimal   @default(0) @db.Decimal(18, 2)
+  currency        String    @default("CRC")
+  startDate       DateTime?
+  endDate         DateTime?
+  status          String    @default("idle")                         // idle | active | maintenance | returned | retired
+  assignedTo      String    @default("")
+  notes           String    @default("")
+  orgId           String?
+  createdBy       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, status])
+}
+
+model TimeEntry {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workerName      String
+  workerRole      String    @default("oficial")                      // operario_especializado | operario | ayudante | peon | maestro | ingeniero | otro
+  taskDescription String    @default("")
+  date            DateTime
+  hours           Float     @default(0)
+  hourlyRate      Decimal   @default(0) @db.Decimal(18, 2)
+  totalCost       Decimal   @default(0) @db.Decimal(18, 2)           // server-computed: hours * hourlyRate
+  currency        String    @default("CRC")
+  positionId      String?
+  notes           String    @default("")
+  approved        Boolean   @default(false)
+  approvedBy      String    @default("")
+  orgId           String?
+  createdBy       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, date])
+  @@index([positionId])
+}
+
+// ─── Bill of Quantities (detailed estimate) ──────────────────
+
+model Boq {
+  id            String         @id @default(uuid())
+  projectId     String
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String
+  description   String         @default("")
+  status        String         @default("draft") // draft | sent | approved | rejected
+  currency      String         @default("CRC")
+  orgId         String?
+  createdBy     String         @default("")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  positions     BoqPosition[]
+  markups       BoqMarkup[]
+}
+
+model BoqPosition {
+  id              String   @id @default(uuid())
+  boqId           String
+  boq             Boq      @relation(fields: [boqId], references: [id], onDelete: Cascade)
+  ordinal         String   @default("")          // e.g. "01.02.003"
+  description     String
+  unit            String   @default("unidad")    // m, m2, m3, kg, pcs, lsum, …
+  quantity        Decimal  @default(0) @db.Decimal(18, 4)
+  unitRate        Decimal  @default(0) @db.Decimal(18, 2)
+  total           Decimal  @default(0) @db.Decimal(18, 2)  // denormalized; computed on write
+  source          String   @default("manual")    // manual | cad_import | catalog
+  cadElementIds   String   @default("[]")        // JSON array of IFC globalIds
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([boqId, sortOrder])
+}
+
+model BoqMarkup {
+  id            String   @id @default(uuid())
+  boqId         String
+  boq           Boq      @relation(fields: [boqId], references: [id], onDelete: Cascade)
+  name          String
+  markupType    String   @default("percentage") // percentage | fixed
+  category      String   @default("overhead")   // overhead | profit | tax | contingency
+  percentage    Decimal  @default(0) @db.Decimal(8, 4)
+  fixedAmount   Decimal  @default(0) @db.Decimal(18, 2)
+  applyTo       String   @default("direct_cost") // direct_cost | cumulative
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([boqId, sortOrder])
+}
+
+// ─── Execution: RFI, Punch list, Change orders ──────────────
+
+model Rfi {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number      String   @default("")          // e.g. "RFI-001"
+  subject     String
+  question    String   @default("")
+  answer      String   @default("")
+  discipline  String   @default("general")   // architectural | structural | mep | civil | general
+  status      String   @default("open")      // open | answered | closed
+  priority    String   @default("normal")    // low | normal | high | urgent
+  dueDate     DateTime?
+  askedBy     String   @default("")
+  answeredBy  String   @default("")
+  orgId       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId, status])
+}
+
+model PunchListItem {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number      String   @default("")          // e.g. "P-001"
+  description String
+  location    String   @default("")          // e.g. "Level 2, Room 203"
+  trade       String   @default("general")   // electrical | plumbing | finishes | etc.
+  status      String   @default("open")      // open | in_progress | resolved | verified
+  severity    String   @default("normal")    // minor | normal | major | critical
+  assignedTo  String   @default("")
+  photos      String   @default("[]")        // JSON array of URLs
+  orgId       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId, status])
+}
+
+model ChangeOrder {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number      String   @default("")          // e.g. "CO-001"
+  title       String
+  description String   @default("")
+  reason      String   @default("")          // owner_request | design_change | site_condition | regulatory
+  costImpact  Decimal  @default(0) @db.Decimal(18, 2)   // derived: directSubtotal + markupsTotal
+  directSubtotal Decimal @default(0) @db.Decimal(18, 2) // sum of line items (material+labor+equipment+sub+other)
+  markupsTotal   Decimal @default(0) @db.Decimal(18, 2) // sum of all active markups applied
+  currency       String  @default("CRC")
+  scheduleImpactDays Int @default(0)
+  scheduleJustification String @default("")
+  status      String   @default("draft")     // draft | submitted | approved | rejected
+  submittedBy String   @default("")
+  approvedBy  String   @default("")
+  approvedAt  DateTime?
+  orgId       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lineItems   ChangeOrderLineItem[]
+  markups     ChangeOrderMarkup[]
+  versions    ChangeOrderVersion[]
+
+  @@index([projectId, status])
+}
+
+model ChangeOrderLineItem {
+  id              String      @id @default(uuid())
+  changeOrderId   String
+  changeOrder     ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  ordinal         String      @default("")     // e.g. "1.1", "1.2", "2.1"
+  description     String
+  category        String      @default("materials") // materials | labor | equipment | subcontractor | other
+  unit            String      @default("unidad") // m, m2, m3, kg, hr, pcs, lsum…
+  quantity        Decimal     @default(0) @db.Decimal(18, 4)
+  unitRate        Decimal     @default(0) @db.Decimal(18, 2)
+  subtotal        Decimal     @default(0) @db.Decimal(18, 2) // server-computed quantity*unitRate
+  notes           String      @default("")
+  sortOrder       Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([changeOrderId, sortOrder])
+}
+
+model ChangeOrderMarkup {
+  id              String      @id @default(uuid())
+  changeOrderId   String
+  changeOrder     ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  name            String                                       // e.g. "Overhead 10%", "Profit 8%", "Contingencia"
+  category        String      @default("overhead")             // overhead | profit | tax | contingency
+  markupType      String      @default("percentage")           // percentage | fixed
+  percentage      Decimal     @default(0) @db.Decimal(8, 4)    // 10.0000 = 10%
+  fixedAmount     Decimal     @default(0) @db.Decimal(18, 2)
+  applyTo         String      @default("subtotal")             // subtotal | cumulative
+  computedAmount  Decimal     @default(0) @db.Decimal(18, 2)   // server-computed
+  sortOrder       Int         @default(0)
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([changeOrderId, sortOrder])
+}
+
+model ChangeOrderVersion {
+  id              String      @id @default(uuid())
+  changeOrderId   String
+  changeOrder     ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  versionNumber   Int                                           // monotonically increasing per CO
+  status          String                                        // status at snapshot time
+  snapshotJson    String                                        // full CO + line items + markups serialized
+  changeNote      String      @default("")                      // why this version exists ("Submitted to owner")
+  createdBy       String      @default("")
+  createdAt       DateTime    @default(now())
+
+  @@unique([changeOrderId, versionNumber])
+  @@index([changeOrderId])
+}
+
+// ─── Mawi Parity Modules ─────────────────────────────────────
+
+model PurchaseOrder {
+  id           String    @id @default(uuid())
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number       String    @default("")
+  supplier     String    @default("")
+  description  String    @default("")
+  status       String    @default("draft")    // draft | issued | partially_received | received | paid | cancelled
+  totalAmount  Decimal   @default(0) @db.Decimal(18, 2)
+  currency     String    @default("CRC")
+  issueDate    DateTime?
+  expectedDate DateTime?
+  receivedDate DateTime?
+  notes        String    @default("")
+  orgId        String?
+  createdBy    String    @default("")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([projectId, status])
+}
+
+model Submittal {
+  id           String    @id @default(uuid())
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number       String    @default("")
+  title        String
+  description  String    @default("")
+  type         String    @default("shop_drawing")  // shop_drawing | sample | product_data | mock_up | calculations
+  spec_section String    @default("")
+  status       String    @default("draft")  // draft | submitted | under_review | approved | rejected | revise_resubmit
+  submittedBy  String    @default("")
+  reviewedBy   String    @default("")
+  submittedAt  DateTime?
+  reviewedAt   DateTime?
+  notes        String    @default("")
+  orgId        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([projectId, status])
+}
+
+model BidRequest {
+  id               String    @id @default(uuid())
+  projectId        String
+  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number           String    @default("")
+  scope            String
+  description      String    @default("")
+  dueDate          DateTime?
+  status           String    @default("open")   // open | closed | awarded | cancelled
+  invitedSuppliers String    @default("[]")
+  awardedSupplier  String    @default("")
+  awardedAmount    Decimal   @default(0) @db.Decimal(18, 2)
+  currency         String    @default("CRC")
+  notes            String    @default("")
+  orgId            String?
+  createdBy        String    @default("")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  bidQuotes        BidQuote[]
+
+  @@index([projectId, status])
+}
+
+model Supplier {
+  id            String   @id @default(uuid())
+  name          String
+  category      String   @default("")
+  contactName   String   @default("")
+  contactEmail  String   @default("")
+  contactPhone  String   @default("")
+  taxId         String   @default("")
+  address       String   @default("")
+  paymentTerms  String   @default("contado")
+  rating        Int      @default(0)
+  notes         String   @default("")
+  isActive      Boolean  @default(true)
+  orgId         String?
+  createdBy     String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  bidQuotes     BidQuote[]
+
+  @@index([createdBy, isActive])
+  @@index([orgId, isActive])
+}
+
+model BidQuote {
+  id            String      @id @default(uuid())
+  bidRequestId  String
+  bidRequest    BidRequest  @relation(fields: [bidRequestId], references: [id], onDelete: Cascade)
+  supplierId    String?
+  supplier      Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierName  String      @default("")
+  amount        Decimal     @default(0) @db.Decimal(18, 2)
+  currency      String      @default("CRC")
+  validUntil    DateTime?
+  notes         String      @default("")
+  status        String      @default("pending")
+  receivedAt    DateTime?
+  documents     String      @default("[]")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([bidRequestId])
+  @@index([supplierId])
+}
+
+model Expense {
+  id            String    @id @default(uuid())
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  positionId    String?
+  number        String    @default("")
+  vendor        String    @default("")
+  description   String
+  category      String    @default("materials")  // materials | labor | equipment | subcontractor | overhead | other
+  amount        Decimal   @default(0) @db.Decimal(18, 2)
+  currency      String    @default("CRC")
+  invoiceDate   DateTime?
+  paymentDate   DateTime?
+  status        String    @default("pending")  // pending | approved | paid | rejected
+  attachmentUrl String    @default("")
+  // ── CR Tax fields ────────────────────────────────────────────
+  taxRate           Float    @default(13)
+  taxAmount         Decimal  @default(0) @db.Decimal(18, 2)
+  withholdingRate   Float    @default(0)
+  withholdingAmount Decimal  @default(0) @db.Decimal(18, 2)
+  withholdingType   String   @default("")   // "iva_2pct" | "renta_2pct" | "renta_4pct"
+  orgId         String?
+  createdBy     String    @default("")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([positionId])
+}
+
+// ─── PDF Takeoff (Plan 8a) ────────────────────────────────────
+
+model Takeoff {
+  id            String                @id @default(uuid())
+  projectId     String
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String                                                    // e.g. "A-100 Plantas Arq."
+  pdfUrl        String                @default("")                        // path to uploaded PDF
+  pageNumber    Int                   @default(1)
+  scaleFactor   Float                 @default(1.0)                       // pixels-per-meter; computed from calibration
+  scaleUnit     String                @default("m")                       // m | ft | in | mm
+  calibrated    Boolean               @default(false)
+  notes         String                @default("")
+  orgId         String?
+  createdBy     String                @default("")
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  measurements  TakeoffMeasurement[]
+
+  @@index([projectId])
+}
+
+model TakeoffMeasurement {
+  id               String   @id @default(uuid())
+  takeoffId        String
+  takeoff          Takeoff  @relation(fields: [takeoffId], references: [id], onDelete: Cascade)
+  type             String                            // "area" | "length" | "count"
+  label            String   @default("")             // e.g. "Walls level 1", "Doors"
+  unit             String   @default("m2")           // m2 | m | unidad
+  quantity         Float    @default(0)              // computed value in target units
+  geometryJson     String   @default("[]")           // JSON array of points
+  color            String   @default("#a78bfa")      // overlay color
+  catalogProductId String?                           // optional link to catalog product
+  unitRate         Float    @default(0)              // for BOQ push
+  createdAt        DateTime @default(now())
+
+  @@index([takeoffId])
+}
+
+// ─── Audit Log ───────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String
+  userEmail   String   @default("")
+  action      String                            // "create" | "update" | "delete"
+  entityType  String                            // "Boq" | "PurchaseOrder" | etc
+  entityId    String
+  projectId   String?                           // optional, for project-level filtering
+  orgId       String?
+  changes     String   @default("{}")           // JSON snapshot of {before, after} for update; full record for create/delete
+  description String   @default("")             // human-readable summary
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// ─── Outbuild-style Lookahead + Weekly Plan + Pull Planning ─────
+
+model LookaheadTask {
+  id              String   @id @default(uuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentTaskId    String?
+  name            String
+  description     String   @default("")
+  weekOf          DateTime
+  startDate       DateTime
+  endDate         DateTime
+  durationDays    Float    @default(1)
+  assignedCrew    String   @default("")
+  trade           String   @default("general")
+  constraints     String   @default("[]")
+  status          String   @default("planned")
+  percentComplete Float    @default(0)
+  notes           String   @default("")
+  sortOrder       Int      @default(0)
+  orgId           String?
+  createdBy       String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  weeklyPlanItem  WeeklyPlanItem?
+
+  @@index([projectId, weekOf])
+}
+
+model WeeklyWorkPlan {
+  id          String           @id @default(uuid())
+  projectId   String
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  weekOf      DateTime
+  status      String           @default("draft")
+  notes       String           @default("")
+  orgId       String?
+  createdBy   String           @default("")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  items       WeeklyPlanItem[]
+
+  @@unique([projectId, weekOf])
+  @@index([projectId])
+}
+
+model WeeklyPlanItem {
+  id              String         @id @default(uuid())
+  weeklyPlanId    String
+  weeklyPlan      WeeklyWorkPlan @relation(fields: [weeklyPlanId], references: [id], onDelete: Cascade)
+  lookaheadTaskId String?        @unique
+  lookaheadTask   LookaheadTask? @relation(fields: [lookaheadTaskId], references: [id], onDelete: SetNull)
+  title           String
+  trade           String         @default("general")
+  assignedCrew    String         @default("")
+  committedDays   Float          @default(1)
+  actualDays      Float          @default(0)
+  status          String         @default("pending")
+  varianceReason  String         @default("")
+  varianceNotes   String         @default("")
+  sortOrder       Int            @default(0)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([weeklyPlanId])
+}
+
+model PullPlanCard {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  text        String
+  type        String   @default("activity")
+  trade       String   @default("general")
+  color       String   @default("#a78bfa")
+  weekOffset  Int      @default(0)
+  dayOffset   Int      @default(0)
+  swimlane    String   @default("default")
+  orgId       String?
+  createdBy   String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId, weekOffset])
+}
+
+// ─── Notifications (Plan 8f) ──────────────────────────────────
+
+model Notification {
+  id            String    @id @default(uuid())
+  userId        String                                // recipient
+  triggeredBy   String    @default("")                // userEmail of actor
+  entityType    String                                // "ChangeOrder" | "Rfi" | etc
+  entityId      String
+  projectId     String?
+  orgId         String?
+  title         String                                // e.g. "CO-001 aprobada"
+  message       String    @default("")                // longer description
+  url           String    @default("")                // deep link to the record
+  read          Boolean   @default(false)
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, read, createdAt])
+}
+
+// ─── Costa Rica tax compliance (Plan 8g) ────────────────────────
+
+model CompanyTaxConfig {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  legalName           String   @default("")
+  cedulaJuridica      String   @default("")
+  identificationType  String   @default("02")
+  taxRegime           String   @default("regimen_tradicional")
+  province            String   @default("")
+  canton              String   @default("")
+  district            String   @default("")
+  exactAddress        String   @default("")
+  email               String   @default("")
+  phone               String   @default("")
+  hacienda_username   String   @default("")
+  hacienda_password   String   @default("")
+  signatureP12Base64  String   @default("")
+  signaturePin        String   @default("")
+  defaultIvaRate      Float    @default(13)
+  consecutiveCounter  Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model Invoice {
+  id                  String   @id @default(uuid())
+  projectId           String?
+  project             Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  number              String   @default("")
+  consecutivo         String   @default("")
+  clave               String   @unique @default("")
+  status              String   @default("draft")
+  issueDate           DateTime?
+  dueDate             DateTime?
+  customerName        String   @default("")
+  customerCedula      String   @default("")
+  customerEmail       String   @default("")
+  subtotal            Decimal  @default(0) @db.Decimal(18, 2)
+  taxRate             Float    @default(13)
+  taxAmount           Decimal  @default(0) @db.Decimal(18, 2)
+  total               Decimal  @default(0) @db.Decimal(18, 2)
+  currency            String   @default("CRC")
+  paymentCondition    String   @default("01")
+  paymentMethod       String   @default("01")
+  notes               String   @default("")
+  xmlContent          String   @default("")
+  xmlSignedContent    String   @default("")
+  haciendaResponse    String   @default("")
+  orgId               String?
+  createdBy           String   @default("")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  lineItems           InvoiceLineItem[]
+
+  @@index([projectId, status])
+  @@index([createdBy])
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNumber  Int     @default(1)
+  cabys       String  @default("")
+  description String
+  quantity    Decimal @default(1) @db.Decimal(18, 4)
+  unit        String  @default("Sp")
+  unitPrice   Decimal @default(0) @db.Decimal(18, 2)
+  discount    Decimal @default(0) @db.Decimal(18, 2)
+  subtotal    Decimal @default(0) @db.Decimal(18, 2)
+  taxRate     Float   @default(13)
+  taxAmount   Decimal @default(0) @db.Decimal(18, 2)
+  total       Decimal @default(0) @db.Decimal(18, 2)
+
+  @@index([invoiceId])
+}
+
+// ─── Multi-tenant teams ─────────────────────────────────────
+
+model Organization {
+  id            String           @id @default(uuid())
+  name          String
+  slug          String           @unique
+  ownerUserId   String                                  // initial creator; becomes the "owner" role member
+  taxId         String           @default("")           // CR cédula jurídica if set
+  logoUrl       String           @default("")
+  isPersonal    Boolean          @default(false)        // true for the auto-created default org per user
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  memberships   OrgMembership[]
+  invites       OrgInvite[]
+
+  @@index([ownerUserId])
+}
+
+model OrgMembership {
+  id            String       @id @default(uuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId        String
+  role          String       @default("viewer")        // owner | pm | field | viewer | subcontractor
+  invitedAt     DateTime     @default(now())
+  joinedAt      DateTime?
+  status        String       @default("active")         // active | suspended | left
+
+  @@unique([orgId, userId])
+  @@index([userId])
+}
+
+model OrgInvite {
+  id            String       @id @default(uuid())
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  email         String
+  role          String       @default("viewer")
+  token         String       @unique @default(uuid())
+  invitedBy     String
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  status        String       @default("pending")       // pending | accepted | expired | revoked
+  createdAt     DateTime     @default(now())
+
+  @@index([orgId, status])
+  @@index([token])
+}
+
+model SubcontractorPortalAccess {
+  id            String   @id @default(uuid())
+  orgId         String
+  supplierId    String?                                // optional link to Supplier
+  email         String
+  contactName   String   @default("")
+  token         String   @unique @default(uuid())
+  scope         String   @default("default")           // "default" | custom JSON
+  expiresAt     DateTime?
+  lastAccessedAt DateTime?
+  active        Boolean  @default(true)
+  createdBy     String   @default("")
+  createdAt     DateTime @default(now())
+
+  @@index([token])
+  @@index([orgId, active])
+}
+
+// ─── Marketing leads (Plan 8h) ───────────────────────────────
+
+model Lead {
+  id          String   @id @default(uuid())
+  email       String
+  name        String   @default("")
+  company     String   @default("")
+  phone       String   @default("")
+  message     String   @default("")
+  source      String   @default("landing")    // landing | contact | demo | pricing | blog
+  utmCampaign String   @default("")
+  utmSource   String   @default("")
+  utmMedium   String   @default("")
+  status      String   @default("new")        // new | contacted | qualified | won | lost
+  createdAt   DateTime @default(now())
+
+  @@index([source, createdAt])
+  @@index([status])
+}
+
+// Costaplanner structural design results.
+model StructuralDesign {
+  id            String   @id @default(uuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy     String   @default("")
+  name          String   @default("")
+  archJson      Json
+  structJson    Json
+  resultJson    Json
+  summaryStatus String   @default("ok")
+  elementsCount Int      @default(0)
+  passingCount  Int      @default(0)
+  reviewCount   Int      @default(0)
+  errorCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([createdBy])
+}
+
+// ─── Sprint 1: Cost Benchmarks (CR data, replaces hardcoded US rates) ──────────
+
+/// Per-building-type baseline cost rates in CRC/m². Used by /api/estimate
+/// for conceptual estimates grounded in real CR data.
+model CostBenchmark {
+  id                 String   @id @default(uuid())
+  buildingType       String
+  finishLevel        String   @default("standard")
+  constructionSystem String   @default("MAMPOSTERIA_CONFINADA")
+  ratePerSqm         Decimal  @default(0) @db.Decimal(18, 2)
+  currency           String   @default("CRC")
+  region             String   @default("CR_NATIONAL")
+  source             String   @default("")
+  effectiveDate      DateTime @default(now())
+  notes              String   @default("")
+  divisionsJson      String   @default("{}")
+  matLaborJson       String   @default("{}")
+  orgId              String?
+  createdBy          String   @default("")
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([buildingType, finishLevel, constructionSystem, region, orgId])
+  @@index([buildingType, constructionSystem, isActive])
+}
+
+/// Per-organization subscription tier + add-ons. Stripe metadata lives here
+/// once Phase C wires billing; for now the row is the source of truth.
+///
+/// Plan values: FREE | ESTIMATING | PRO | BIM_SUITE | ENTERPRISE
+/// PriceMode:   PER_PROJECT (Estimating) | PER_SEAT (Pro / BIM Suite / Enterprise)
+/// AddOns (CSV string): COSTAPLANNER_PRO,WHATSAPP_PRO,IOS_ANDROID,PDF_MARKUPS,BCF
+/// Status:      ACTIVE | TRIALING | PAST_DUE | CANCELED | INCOMPLETE
+model Subscription {
+  id                   String   @id @default(uuid())
+  orgId                String   @unique
+  plan                 String   @default("FREE")
+  priceMode            String   @default("PER_SEAT")
+  status               String   @default("ACTIVE")
+  addons               String   @default("")
+  trialEndsAt          DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAt             DateTime?
+  seatsPurchased       Int      @default(1)
+  stripeCustomerId     String   @default("")
+  stripeSubscriptionId String   @default("")
+  notes                String   @default("")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([plan, status])
+  @@index([stripeCustomerId])
+}
+
+/// Per-org monthly usage counters. Reset on currentPeriodEnd or first-of-month.
+/// Used to enforce quota-limited features (OCR pages, AI tokens, exports, active projects).
+model Quota {
+  id                 String   @id @default(uuid())
+  orgId              String
+  periodStart        DateTime @default(now())
+  exportsUsed        Int      @default(0)
+  ocrPagesUsed       Int      @default(0)
+  aiTokensUsed       Int      @default(0)
+  activeProjectCount Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([orgId, periodStart])
+  @@index([orgId])
+}
+
+/// CR construction resource catalog (cement, rebar, blocks, labor rates).
+model ResourceBenchmark {
+  id            String   @id @default(uuid())
+  code          String
+  name          String
+  resourceType  String   @default("material")
+  category      String   @default("")
+  unit          String
+  priceAvg      Decimal  @default(0) @db.Decimal(18, 2)
+  priceMin      Decimal  @default(0) @db.Decimal(18, 2)
+  priceMax      Decimal  @default(0) @db.Decimal(18, 2)
+  currency      String   @default("CRC")
+  source        String   @default("")
+  effectiveDate DateTime @default(now())
+  notes         String   @default("")
+  orgId         String?
+  createdBy     String   @default("")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([code, orgId])
+  @@index([resourceType, isActive])
+  @@index([category])
+}
+
+// ─── Sprint 2: Safety + Inspections + NCR (CR INS) ──────────────────────────────
+
+model SafetyIncident {
+  id                String    @id @default(uuid())
+  projectId         String
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number            String    @default("")
+  date              DateTime
+  severity          String    @default("minor")
+  category          String    @default("other")
+  involvedWorker    String    @default("")
+  workerRole        String    @default("")
+  description       String
+  immediateAction   String    @default("")
+  rootCause         String    @default("")
+  preventiveMeasure String    @default("")
+  reportedToINS     Boolean   @default(false)
+  insClaimNumber    String    @default("")
+  lostDays          Int       @default(0)
+  photos            String    @default("[]")
+  status            String    @default("open")
+  reportedBy        String    @default("")
+  closedBy          String    @default("")
+  closedAt          DateTime?
+  orgId             String?
+  createdBy         String    @default("")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([projectId, date])
+}
+
+model ToolboxTalk {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  date            DateTime
+  topic           String
+  presentedBy     String    @default("")
+  duration        Int       @default(15)
+  attendeeCount   Int       @default(0)
+  attendeesJson   String    @default("[]")
+  notes           String    @default("")
+  attachmentUrl   String    @default("")
+  orgId           String?
+  createdBy       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, date])
+}
+
+model Inspection {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number          String    @default("")
+  type            String    @default("quality")
+  date            DateTime
+  scheduledDate   DateTime?
+  inspector       String    @default("")
+  inspectorOrg    String    @default("")
+  location        String    @default("")
+  checklistJson   String    @default("[]")
+  passCount       Int       @default(0)
+  failCount       Int       @default(0)
+  result          String    @default("pending")
+  followUpDate    DateTime?
+  photos          String    @default("[]")
+  notes           String    @default("")
+  status          String    @default("scheduled")
+  orgId           String?
+  createdBy       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  ncrs            NonConformance[]
+
+  @@index([projectId, status])
+  @@index([projectId, date])
+}
+
+model NonConformance {
+  id               String      @id @default(uuid())
+  projectId        String
+  project          Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspectionId     String?
+  inspection       Inspection? @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+  number           String      @default("")
+  date             DateTime
+  category         String      @default("workmanship")
+  severity         String      @default("normal")
+  description      String
+  rootCause        String      @default("")
+  correctiveAction String      @default("")
+  preventiveAction String      @default("")
+  responsibleParty String      @default("")
+  targetCloseDate  DateTime?
+  actualCloseDate  DateTime?
+  costImpact       Decimal     @default(0) @db.Decimal(18, 2)
+  status           String      @default("open")
+  closedBy         String      @default("")
+  photos           String      @default("[]")
+  orgId            String?
+  createdBy        String      @default("")
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@index([projectId, status])
+  @@index([inspectionId])
+}
+
+// ─── Sprint 3: Compliance (CFIA, Min Salud, Bomberos, Setena, Municipalidad) ────
+
+// ─── Sprint 4: Risk register (PMBOK-style) ──────────────────────────────────────
+model Risk {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number          String    @default("")
+  title           String
+  description     String    @default("")
+  category        String    @default("schedule")             // schedule | cost | quality | safety | regulatory | external | resource
+  probability     Int       @default(3)                      // 1-5 (very low to very high)
+  impact          Int       @default(3)                      // 1-5
+  score           Int       @default(9)                      // probability * impact (server-computed)
+  mitigation      String    @default("")
+  contingency     String    @default("")
+  responsibleParty String   @default("")
+  triggerDate     DateTime?
+  status          String    @default("open")                 // open | monitoring | mitigated | accepted | realized | closed
+  costExposure    Decimal   @default(0) @db.Decimal(18, 2)
+  scheduleExposureDays Int  @default(0)
+  realizedDate    DateTime?
+  closedAt        DateTime?
+  notes           String    @default("")
+  orgId           String?
+  createdBy       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([projectId, score])
+}
+
+// ─── Sprint 5: Correspondence log (formal letters/emails) ───────────────────────
+model Correspondence {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number          String    @default("")
+  date            DateTime
+  direction       String    @default("outbound")             // inbound | outbound | internal
+  type            String    @default("letter")               // letter | email | memo | meeting_minutes | notice | other
+  subject         String
+  fromName        String    @default("")
+  fromOrg         String    @default("")
+  toName          String    @default("")
+  toOrg           String    @default("")
+  cc              String    @default("")                     // comma-separated
+  body            String    @default("")
+  attachmentsJson String    @default("[]")
+  threadId        String?                                    // group related items
+  relatedRfiId    String?
+  relatedCoId     String?
+  status          String    @default("sent")                 // draft | sent | received | acknowledged | escalated
+  requiresResponse Boolean  @default(false)
+  responseDueDate DateTime?
+  respondedAt     DateTime?
+  orgId           String?
+  createdBy       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, date])
+  @@index([threadId])
+}
+
+// ─── Sprint 6: Transmittals (formal document handoff with sign-off) ─────────────
+model Transmittal {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  number          String    @default("")
+  date            DateTime
+  subject         String
+  purpose         String    @default("for_review")           // for_review | for_approval | for_information | for_record | for_action
+  fromName        String    @default("")
+  fromOrg         String    @default("")
+  toName          String    @default("")
+  toOrg           String    @default("")
+  cc              String    @default("")
+  description     String    @default("")
+  documentsJson   String    @default("[]")                   // [{name, revision, fileUrl?, drawingNumber?}]
+  dueDate         DateTime?
+  status          String    @default("draft")                // draft | sent | acknowledged | actioned | closed
+  acknowledgedBy  String    @default("")
+  acknowledgedAt  DateTime?
+  notes           String    @default("")
+  orgId           String?
+  createdBy       String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, status])
+}
+
+// ─── Sprint 8: Cost-Match AI (BIM element → BOQ position mapping) ───────────────
+/// One row per AI-suggested or human-confirmed match between a BIM element
+/// and a BOQ position. Used to roll up actual BIM-driven cost without manual
+/// takeoff data entry.
+model CostMatch {
+  id              String       @id @default(uuid())
+  projectId       String
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bimElementId    String?                                       // optional FK to BimElement
+  bimGlobalId     String       @default("")                     // IFC globalId for cross-model lookups
+  bimDescription  String       @default("")                     // snapshot of element ifcClass/name/material
+  boqId           String?                                       // optional FK to Boq
+  boqPositionId   String?                                       // FK to BoqPosition
+  matchSource     String       @default("ai")                   // ai | manual | imported
+  matchScore      Float        @default(0)                      // 0-1 confidence from AI
+  matchReason     String       @default("")                     // AI's rationale
+  quantity        Decimal      @default(0) @db.Decimal(18, 4)   // derived quantity from element geometry
+  unit            String       @default("")
+  confirmedBy     String       @default("")                     // user email who accepted match
+  confirmedAt     DateTime?
+  status          String       @default("suggested")            // suggested | confirmed | rejected
+  orgId           String?
+  createdBy       String       @default("")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([projectId, status])
+  @@index([projectId, boqPositionId])
+}
+
+/// Tracks compliance requirements for a project, pre-seeded with CR
+/// regulatory checklists per building type.
+model ComplianceRequirement {
+  id               String    @id @default(uuid())
+  projectId        String
+  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authority        String
+  category         String    @default("general")
+  title            String
+  description      String    @default("")
+  requiredBy       String    @default("")
+  dueDate          DateTime?
+  filedDate        DateTime?
+  approvedDate     DateTime?
+  expirationDate   DateTime?
+  reference        String    @default("")
+  responsibleParty String    @default("")
+  documentUrl      String    @default("")
+  generatedHtml    String    @default("")
+  status           String    @default("pending")
+  notes            String    @default("")
+  orgId            String?
+  createdBy        String    @default("")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([authority])
+}
