@@ -108,8 +108,45 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={null}>
-      <LoginForm />
-    </Suspense>
+    <>
+      <noscript>
+        <div style={{
+          minHeight: "100vh",
+          background: "#09090b",
+          color: "#f4f4f5",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "2rem",
+          fontFamily: "system-ui, sans-serif",
+        }}>
+          <div style={{ maxWidth: "28rem", textAlign: "center" }}>
+            <div style={{
+              fontSize: "0.75rem",
+              textTransform: "uppercase",
+              letterSpacing: "0.15em",
+              color: "#fbbf24",
+              marginBottom: "0.75rem",
+            }}>Costaplanner</div>
+            <h1 style={{ fontSize: "1.5rem", fontWeight: 600, marginBottom: "1rem" }}>
+              Necesitas activar JavaScript
+            </h1>
+            <p style={{ fontSize: "0.875rem", color: "#a1a1aa", lineHeight: 1.6 }}>
+              El formulario de inicio de sesión usa NextAuth en el cliente.
+              Por favor habilita JavaScript en tu navegador y recarga la página.
+            </p>
+            <p style={{ fontSize: "0.75rem", color: "#71717a", marginTop: "1rem" }}>
+              ¿Sin JavaScript en tu organización? Escríbenos a
+              {" "}<a href="mailto:cappellaadrian@gmail.com" style={{ color: "#fbbf24" }}>
+                cappellaadrian@gmail.com
+              </a> y habilitamos un acceso alterno.
+            </p>
+          </div>
+        </div>
+      </noscript>
+      <Suspense fallback={null}>
+        <LoginForm />
+      </Suspense>
+    </>
   );
 }

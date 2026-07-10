@@ -17,6 +17,9 @@
  *   INTE C85:2017 (concrete class by zone)
  */
 
+// @lat: [[lat.md\codigo\vigas#Vigas#Diseno de flexion]]
+// @lat: [[lat.md\codigo\vigas#Vigas#Predimensionado de viga]]
+
 // ---------------------------------------------------------------------------
 // Material helpers — ports of materials.py
 // ---------------------------------------------------------------------------

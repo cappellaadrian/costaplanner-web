@@ -1,0 +1,392 @@
+"use client";
+
+/**
+ * /proyectos/[id]/memoria — project-level master PDF builder.
+ *
+ * Pipeline:
+ *   1. GET /api/design-projects/[id]   → project meta + design index
+ *   2. GET /api/designs/[id]            (one per saved design — to retrieve
+ *                                        the full archJson/structJson/resultJson)
+ *   3. designToSnapshot(...)            → reconstructs a DesignSnapshot[] by
+ *                                        looking up the element registry and
+ *                                        re-deriving steps + checks from the
+ *                                        saved resultJson.
+ *   4. printProjectAsPdf(snapshots, meta) — emits the consolidated CFIA-ready
+ *                                        memoria (cover, TOC, criteria, every
+ *                                        element, quantities, refs, signature).
+ *
+ * Phase 1 limitations:
+ *   - No diagrams (re-running diagram React components needs the engine's
+ *     full LiveResult shape; safe later when each builder is wired up here).
+ *   - Geotech entries (SPT, CPT, ...) render as inputs-only sections — those
+ *     engines don't expose buildSteps / buildChecks today.
+ */
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { printProjectAsPdf } from "@/lib/exporters/project-pdf";
+import type { DesignSnapshot } from "@/lib/exporters/types";
+import {
+  designToSnapshot,
+  type FullDesign,
+  type ProjectMeta,
+} from "@/lib/proyectos/design-to-snapshot";
+
+// ─── Local mirrors of the dashboard types ────────────────────────────────
+
+interface DesignSummary {
+  id: string;
+  name: string;
+  summaryStatus: string;
+  elementsCount: number;
+  passingCount: number;
+  reviewCount: number;
+  errorCount: number;
+  revisionNumber: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ProjectResponse {
+  id: string;
+  name: string;
+  metaJson: ProjectMeta;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  designs: DesignSummary[];
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Page component
+// ───────────────────────────────────────────────────────────────────────────
+
+interface BuildEntry {
+  design: FullDesign;
+  snapshot: DesignSnapshot | null;
+  reason?: string;
+}
+
+export default function MemoriaPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const projectId = params.id;
+
+  const router = useRouter();
+  const [project, setProject] = useState<ProjectResponse | null>(null);
+  const [entries, setEntries] = useState<BuildEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      setLoading(true);
+      setError(null);
+      try {
+        // 1. Project + design index
+        const projRes = await fetch(`/api/design-projects/${projectId}`);
+        if (projRes.status === 401) {
+          router.push(`/login?next=/proyectos/${projectId}/memoria`);
+          return;
+        }
+        if (!projRes.ok) {
+          const e = await projRes.json().catch(() => ({}));
+          throw new Error(e.error ?? `HTTP ${projRes.status}`);
+        }
+        const proj = (await projRes.json()) as ProjectResponse;
+        if (cancelled) return;
+        setProject(proj);
+
+        // 2. Fetch each design's full payload (parallel)
+        const fulls = await Promise.all(
+          proj.designs.map(async (d): Promise<FullDesign | null> => {
+            try {
+              const r = await fetch(`/api/designs/${d.id}`);
+              if (!r.ok) return null;
+              return (await r.json()) as FullDesign;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        if (cancelled) return;
+
+        // 3. Convert each design to a snapshot
+        const next: BuildEntry[] = [];
+        for (const full of fulls) {
+          if (!full) continue;
+          const { snapshot, reason } = designToSnapshot(
+            full,
+            proj.metaJson ?? {},
+            proj.name,
+          );
+          next.push({ design: full, snapshot, reason });
+        }
+        setEntries(next);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Error inesperado");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, router]);
+
+  const snapshots = useMemo<DesignSnapshot[]>(
+    () =>
+      entries
+        .map((e) => e.snapshot)
+        .filter((s): s is DesignSnapshot => s !== null),
+    [entries],
+  );
+
+  const skipped = entries.filter((e) => e.snapshot === null);
+  const pageEstimate = Math.max(4, snapshots.length * 4 + 4); // rough: 4 pages per element + 4 boilerplate
+
+  async function handleGenerate() {
+    if (!project) return;
+    setGenerating(true);
+    try {
+      const meta = project.metaJson ?? {};
+      printProjectAsPdf(snapshots, {
+        name: project.name,
+        address: meta.address,
+        owner: meta.owner,
+        engineer: meta.engineerName,
+        cfia: meta.cfiaCode,
+        zonaSismica: meta.zonaSismica,
+      });
+      // After the print dialog is up, return to the dashboard so users land
+      // in a useful place when they close the dialog.
+      setTimeout(() => {
+        router.push(`/proyectos/${projectId}`);
+      }, 1500);
+    } finally {
+      setTimeout(() => setGenerating(false), 1500);
+    }
+  }
+
+  // ─── States ────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-zinc-100">
+        <div className="max-w-3xl mx-auto px-6 py-12 space-y-3">
+          <div className="text-xs uppercase tracking-widest text-amber-400">
+            <Link href={`/proyectos/${projectId}`} className="hover:text-amber-300">
+              ← Volver al proyecto
+            </Link>
+          </div>
+          <h1 className="text-2xl font-semibold">Construyendo memoria…</h1>
+          <p className="text-sm text-zinc-400">
+            Cargando proyecto y reconstruyendo {entries.length || "…"} elementos.
+          </p>
+          <div className="h-1 w-full bg-zinc-900 rounded overflow-hidden">
+            <div className="h-full w-1/3 bg-amber-500 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-zinc-100">
+        <div className="max-w-3xl mx-auto px-6 py-12 space-y-4">
+          <div className="text-xs uppercase tracking-widest text-amber-400">
+            <Link href={`/proyectos/${projectId}`} className="hover:text-amber-300">
+              ← Volver al proyecto
+            </Link>
+          </div>
+          <h1 className="text-2xl font-semibold">No se pudo construir la memoria</h1>
+          <div className="rounded border border-red-700/40 bg-red-500/10 p-4 text-sm text-red-300">
+            {error}
+          </div>
+          <Link
+            href={`/proyectos/${projectId}`}
+            className="inline-block text-xs text-amber-400 hover:underline"
+          >
+            Regresar al dashboard →
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!project) return null;
+
+  // Empty state
+  if (project.designs.length === 0) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-zinc-100">
+        <div className="max-w-3xl mx-auto px-6 py-12 space-y-4">
+          <div className="text-xs uppercase tracking-widest text-amber-400">
+            <Link href={`/proyectos/${projectId}`} className="hover:text-amber-300">
+              ← Volver al proyecto
+            </Link>
+          </div>
+          <h1 className="text-2xl font-semibold">Memoria vacía</h1>
+          <p className="text-sm text-zinc-400 max-w-xl">
+            Aún no hay elementos calculados en{" "}
+            <strong className="text-zinc-200">{project.name}</strong>. Empieza
+            calculando un elemento (zapata, viga, columna…) y vuelve aquí para
+            generar la memoria completa.
+          </p>
+          <Link
+            href={`/proyectos/${projectId}`}
+            className="inline-block px-4 py-2 rounded bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-bold"
+          >
+            Empieza calculando algo →
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Ready state
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+        <div className="text-xs uppercase tracking-widest text-amber-400">
+          <Link href={`/proyectos/${projectId}`} className="hover:text-amber-300">
+            ← Volver al proyecto
+          </Link>
+        </div>
+
+        <header className="space-y-2">
+          <h1 className="text-3xl font-semibold">
+            📄 Memoria — {project.name}
+          </h1>
+          <p className="text-sm text-zinc-400 max-w-2xl">
+            Consolidación CFIA-ready de los {snapshots.length} elementos
+            calculados. Genera un PDF con portada, tabla de contenido,
+            criterios de diseño, cada memoria individual, resumen de
+            cantidades, bibliografía y página de firma profesional.
+          </p>
+        </header>
+
+        {/* Project chips */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {project.metaJson?.cfiaCode && (
+            <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300">
+              CFIA {project.metaJson.cfiaCode}
+            </span>
+          )}
+          {project.metaJson?.engineerName && (
+            <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300">
+              Ing. {project.metaJson.engineerName}
+            </span>
+          )}
+          {project.metaJson?.zonaSismica && (
+            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-700/40">
+              Zona {["I", "II", "III", "IV"][project.metaJson.zonaSismica - 1]}
+            </span>
+          )}
+          <span className="px-2 py-0.5 rounded border border-zinc-800 text-zinc-400">
+            ≈ {pageEstimate} páginas
+          </span>
+        </div>
+
+        {/* Element list */}
+        <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+          <header className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">
+              Elementos incluidos ({snapshots.length}
+              {skipped.length > 0 && (
+                <span className="text-zinc-500">
+                  {" "}
+                  · {skipped.length} omitido(s)
+                </span>
+              )}
+              )
+            </h2>
+            <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+              {project.designs.length} diseños guardados
+            </span>
+          </header>
+          <ul className="divide-y divide-zinc-800/60">
+            {entries.map((e) => {
+              if (!e.snapshot) {
+                return (
+                  <li key={e.design.id} className="px-4 py-3 flex items-center justify-between gap-3 opacity-50">
+                    <div>
+                      <div className="text-sm text-zinc-400">{e.design.name}</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">
+                        {e.reason ?? "Omitido"}
+                      </div>
+                    </div>
+                    <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-500 border border-zinc-800">
+                      Omitido
+                    </span>
+                  </li>
+                );
+              }
+              const passing = e.snapshot.checks.length === 0
+                ? null
+                : e.snapshot.checks.every((c) => c.cumple);
+              return (
+                <li key={e.design.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm text-zinc-200 truncate">{e.snapshot.title}</div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5">
+                      {e.snapshot.elementType} · {e.snapshot.steps.length} pasos · {e.snapshot.checks.length} verificaciones
+                    </div>
+                  </div>
+                  <span
+                    className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                      passing === true
+                        ? "bg-emerald-900/40 text-emerald-300 border-emerald-800"
+                        : passing === false
+                          ? "bg-amber-900/40 text-amber-300 border-amber-800"
+                          : "bg-zinc-900 text-zinc-400 border-zinc-800"
+                    }`}
+                  >
+                    {passing === true ? "OK" : passing === false ? "Revisión" : "Sin checks"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+
+        {/* Generate PDF */}
+        <div className="rounded-lg border border-emerald-700 bg-emerald-950/20 p-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <h3 className="text-base font-semibold text-emerald-200 mb-1">
+              Generar memoria PDF
+            </h3>
+            <p className="text-xs text-zinc-400">
+              Abre el cuadro de impresión del navegador. Selecciona{" "}
+              <span className="text-zinc-200 font-semibold">“Guardar como PDF”</span>{" "}
+              para descargar el archivo, o imprime para entregar en papel.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={generating || snapshots.length === 0}
+            className="px-6 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {generating ? "Generando…" : "📄 Generar PDF"}
+          </button>
+        </div>
+
+        <p className="text-xs text-zinc-600 italic">
+          Phase 1: la memoria reconstruye los pasos y verificaciones desde los
+          resultados guardados. Diagramas SVG y resumen de cantidades de acero
+          quedan habilitados conforme cada elemento se va integrando.
+        </p>
+      </div>
+    </div>
+  );
+}

@@ -22,6 +22,8 @@ export async function GET() {
       id: true,
       name: true,
       revaraProjectId: true,
+      metaJson: true,
+      status: true,
       createdAt: true,
       updatedAt: true,
       _count: { select: { designs: true } },

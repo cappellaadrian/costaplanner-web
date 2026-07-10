@@ -1338,6 +1338,8 @@ model DesignProject {
   createdBy       String
   organizationId  String?
   revaraProjectId String?
+  metaJson        Json     @default("{}")
+  status          String   @default("active") // active | archived | completed
   designs         StructuralDesign[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
